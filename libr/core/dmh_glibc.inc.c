@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2016-2023 - n4x0r, soez, pancake */
+/* radare2 - LGPL - Copyright 2016-2024 - n4x0r, soez, pancake */
 
 #if R_INCLUDE_BEGIN
 // https://levelup.gitconnected.com/understand-heap-memory-allocation-a-hands-on-approach-775151caf2ea
@@ -43,6 +43,7 @@ static GHT GH(get_va_symbol)(RCore *core, const char *path, const char *sym_name
 	GHT vaddr = GHT_MAX;
 	RBin *bin = core->bin;
 	RBinFile *bf = r_bin_cur (bin);
+	int bfid = bf? bf->id: -1;
 
 	RBinFileOptions opt;
 	r_bin_file_options_init (&opt, -1, 0, 0, false);
@@ -57,8 +58,17 @@ static GHT GH(get_va_symbol)(RCore *core, const char *path, const char *sym_name
 			}
 		}
 		RBinFile *libc_bf = r_bin_cur (bin);
-		r_bin_file_delete (bin, libc_bf->id);
-		r_bin_file_set_cur_binfile (bin, bf);
+		if (libc_bf) {
+			r_bin_file_delete (bin, libc_bf->id);
+			if (bfid != -1) {
+				r_bin_file_set_cur_by_id (bin, bfid);
+				// r_bin_file_set_cur_binfile (bin, bf);
+			} else {
+				R_LOG_ERROR ("Cannot revert back to the previous binfile");
+			}
+		} else {
+			R_LOG_ERROR ("Cannot find current binfile for libc");
+		}
 	}
 	return vaddr;
 }
@@ -573,6 +583,7 @@ static GHT GH (get_main_arena_offset_with_relocs) (RCore *core, const char *libc
 		R_LOG_WARN ("get_main_arena_with_relocs: Failed to open libc %s", libc_path);
 		return GHT_MAX;
 	}
+	int bfid = bf? bf->id: -1;
 	RRBTree *relocs = r_bin_get_relocs (bin);
 	if (!relocs) {
 		R_LOG_WARN ("get_main_arena_with_relocs: Failed to get relocs from libc %s", libc_path);
@@ -652,7 +663,10 @@ static GHT GH (get_main_arena_offset_with_relocs) (RCore *core, const char *libc
 
 	RBinFile *libc_bf = r_bin_cur (bin);
 	r_bin_file_delete (bin, libc_bf->id);
-	r_bin_file_set_cur_binfile (bin, bf);
+	if (bfid != -1) {
+		// r_bin_file_set_cur_binfile (bin, bf);
+		r_bin_file_set_cur_by_id (bin, bfid);
+	}
 
 	return main_arena;
 }

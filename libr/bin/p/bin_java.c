@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2023 - pancake, nibble, dso */
+/* radare - LGPL - Copyright 2009-2024 - pancake, nibble, dso */
 
 #define R_LOG_ORIGIN "bin.java"
 
@@ -54,7 +54,20 @@ static RList *entries(RBinFile *bf) {
 }
 
 static RList *classes(RBinFile *bf) {
+#if R2_USE_NEW_ABI
+	// R2_600 - java is duping classes, we need to use bf->bo directly
+	RList *klasses = r_bin_java_get_classes ((struct r_bin_java_obj_t *) bf->bo->bin_obj);
+	RBinClass *klass;
+	RVecRBinClass *vec = &bf->bo->classes;
+	RListIter *iter;
+	r_list_foreach (klasses, iter, klass) {
+		RVecRBinClass_push_back (vec, klass);
+	}
+	// r_list_free (klasses);
+	return NULL;
+#else
 	return r_bin_java_get_classes ((struct r_bin_java_obj_t *) bf->bo->bin_obj);
+#endif
 }
 
 static RList *symbols(RBinFile *bf) {

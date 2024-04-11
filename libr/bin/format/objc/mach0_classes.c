@@ -218,7 +218,7 @@ static inline bool is_thumb(RBinFile *bf) {
 }
 
 static mach0_ut va2pa(RBinFile *bf, mach0_ut p, ut32 *offset, ut32 *left) {
-	r_return_val_if_fail (bf && bf->bo && bf->bo->bin_obj, 0);
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo && bf->bo->bin_obj, 0);
 
 	mach0_ut r = 0;
 	RBinObject *obj = bf->bo;
@@ -1141,7 +1141,7 @@ static char *demangle_classname(const char *s) {
 }
 
 static char *get_class_name(RBinFile *bf, mach0_ut p) {
-	r_return_val_if_fail (bf && bf->bo, NULL);
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo, NULL);
 	RBinObject *bo = bf->bo;
 	ut32 offset, left;
 	ut64 r;
@@ -1659,7 +1659,11 @@ static void parse_type(RBinFile *bf, RList *list, SwiftType st, HtUP *symbols_ht
 			free (method_name);
 		}
 	}
+#if R2_USE_NEW_ABI
+	RVecRBinClass_push_back (&bf->bo->classes, klass);
+#else
 	r_list_append (list, klass);
+#endif
 
 	if (st.fields != UT64_MAX) {
 		int i;
@@ -1749,8 +1753,11 @@ static void *read_section(RBinFile *bf, MetaSection *ms, ut64 *asize) {
 }
 
 RList *MACH0_(parse_classes)(RBinFile *bf, objc_cache_opt_info *oi) {
-	r_return_val_if_fail (bf && bf->bo, NULL);
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo, NULL);
 
+#if R2_USE_NEW_ABI
+	RBinObject *bo = bf->bo;
+#endif
 	ut64 num_of_unnamed_class = 0;
 	RBinClass *klass = NULL;
 	ut32 size = 0;
@@ -1765,8 +1772,7 @@ RList *MACH0_(parse_classes)(RBinFile *bf, objc_cache_opt_info *oi) {
 	if (!bf->bo->bin_obj || !bf->bo->info) {
 		return NULL;
 	}
-	bool bigendian = bf->bo->info->big_endian;
-
+	const bool bigendian = bf->bo->info->big_endian;
 	const RSkipList *relocs = MACH0_(load_relocs) (bf->bo->bin_obj);
 
 	/* check if it's Swift */
@@ -1780,6 +1786,12 @@ RList *MACH0_(parse_classes)(RBinFile *bf, objc_cache_opt_info *oi) {
 			goto get_classes_error;
 		}
 	}
+#if R2_USE_NEW_ABI
+	RListIter *iter;
+	r_list_foreach (ret, iter, klass) {
+		RVecRBinClass_push_back (&bo->classes, klass);
+	}
+#endif
 
 	const bool want_swift = !r_sys_getenv_asbool ("RABIN2_MACHO_NOSWIFT");
 	// 2s / 16s
@@ -1863,7 +1875,11 @@ RList *MACH0_(parse_classes)(RBinFile *bf, objc_cache_opt_info *oi) {
 			free (klass_name);
 			num_of_unnamed_class++;
 		}
+#if R2_USE_NEW_ABI
+		RVecRBinClass_push_back (&bo->classes, klass);
+#else
 		r_list_append (ret, klass);
+#endif
 	}
 	metadata_sections_fini (&ms);
 	return ret;
@@ -1877,18 +1893,21 @@ get_classes_error:
 }
 
 static RList *MACH0_(parse_categories)(RBinFile *bf, MetaSections *ms, const RSkipList *relocs, objc_cache_opt_info *oi) {
-	r_return_val_if_fail (bf && bf->bo && bf->bo->bin_obj && bf->bo->info, NULL);
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo && bf->bo->bin_obj && bf->bo->info, NULL);
 	R_LOG_DEBUG ("parse objc categories");
 	const size_t ptr_size = sizeof (mach0_ut);
-	if (!ms->catlist.have) {
+	if (!ms->catlist.have || !relocs) {
 		return NULL;
 	}
-
+#if R2_USE_NEW_ABI
+	RBinObject *bo = bf->bo;
+	RList *ret = NULL;
+#else
 	RList *ret = r_list_newf ((RListFree)r_bin_class_free);
 	if (!ret || !relocs) {
 		goto error;
 	}
-
+#endif
 	ut32 i;
 	for (i = 0; i < ms->catlist.size; i += ptr_size) {
 		mach0_ut p;
@@ -1929,7 +1948,11 @@ static RList *MACH0_(parse_categories)(RBinFile *bf, MetaSections *ms, const RSk
 		//	free (klass->name);
 		//	klass->name = name;
 		}
+#if R2_USE_NEW_ABI
+		RVecRBinClass_push_back (&bo->classes, klass);
+#else
 		r_list_append (ret, klass);
+#endif
 	}
 	return ret;
 
@@ -2069,8 +2092,8 @@ void MACH0_(get_category_t)(mach0_ut p, RBinFile *bf, RBinClass *klass, const RS
 }
 
 static bool read_ptr_pa(RBinFile *bf, ut64 paddr, mach0_ut *out) {
-	r_return_val_if_fail (out, false);
-	r_return_val_if_fail (bf && bf->bo && bf->bo->info, false);
+	R_RETURN_VAL_IF_FAIL (out, false);
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo && bf->bo->info, false);
 
 	size_t ptr_size = sizeof (mach0_ut);
 	ut8 pp[sizeof (mach0_ut)] = {0};
@@ -2087,7 +2110,7 @@ static bool read_ptr_pa(RBinFile *bf, ut64 paddr, mach0_ut *out) {
 }
 
 static bool read_ptr_va(RBinFile *bf, ut64 vaddr, mach0_ut *out) {
-	r_return_val_if_fail (bf, false);
+	R_RETURN_VAL_IF_FAIL (bf, false);
 	ut32 offset = 0, left = 0;
 	mach0_ut paddr = va2pa (bf, vaddr, &offset, &left);
 	if (paddr == 0 || left < sizeof (mach0_ut)) {
@@ -2097,7 +2120,7 @@ static bool read_ptr_va(RBinFile *bf, ut64 vaddr, mach0_ut *out) {
 }
 
 static char *readstr(RBinFile *bf, ut64 addr) {
-	r_return_val_if_fail (bf, NULL);
+	R_RETURN_VAL_IF_FAIL (bf, NULL);
 
 	int name_len = 256;
 	char *name = calloc (1, name_len + 1);
@@ -2116,7 +2139,7 @@ static char *readstr(RBinFile *bf, ut64 addr) {
 }
 
 static char *read_str(RBinFile *bf, mach0_ut p, ut32 *offset, ut32 *left) {
-	r_return_val_if_fail (bf && offset && left, NULL);
+	R_RETURN_VAL_IF_FAIL (bf && offset && left, NULL);
 
 	mach0_ut paddr = va2pa (bf, p, offset, left);
 	if (paddr == 0 || *left <= 1) {

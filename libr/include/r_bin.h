@@ -1,3 +1,5 @@
+/* radare - LGPL - Copyright 2009-2024 - pancake */
+
 #ifndef R2_BIN_H
 #define R2_BIN_H
 
@@ -327,12 +329,43 @@ typedef struct r_bin_import_t {
 	bool is_imported;
 } RBinImport;
 
+// RBinClass
+typedef struct r_bin_class_t {
+	RBinName *name;
+	RList *super; // list of RBinName
+	char *visibility_str; // XXX R2_590 - only used by dex+java should be ut32 or bitfield.. should be usable for swift too
+	int index; // should be unsigned?
+	ut64 addr;
+	char *ns; // namespace // maybe RBinName?
+#if R2_USE_NEW_ABI
+	// Use RVec here
+	RList *methods; // <RBinSymbol>
+	RList *fields; // <RBinField>
+#else
+	RList *methods; // <RBinSymbol>
+	RList *fields; // <RBinField>
+#endif
+	// RList *interfaces; // <char *>
+	RBinAttribute attr;
+	ut64 lang;
+} RBinClass;
+
+R_API RBinClass *r_bin_class_new(const char *name, const char *super, ut64 attr);
+R_API void r_bin_class_free(RBinClass *);
+#if R2_USE_NEW_ABI
+R_API void r_bin_class_fini(RBinClass *k);
+#endif
+
+
 #include <r_vec.h>
 
 // XXX only forward declare here for better compile times
 R_API void r_bin_symbol_fini(RBinSymbol *sym);
 R_API void r_bin_import_fini(RBinImport *sym);
 R_VEC_TYPE_WITH_FINI (RVecRBinImport, RBinImport, r_bin_import_fini);
+#if R2_USE_NEW_ABI
+R_VEC_TYPE_WITH_FINI (RVecRBinClass, RBinClass, r_bin_class_fini);
+#endif
 R_VEC_TYPE_WITH_FINI (RVecRBinSymbol, RBinSymbol, r_bin_symbol_fini);
 R_VEC_TYPE(RVecRBinSection, RBinSection);
 R_VEC_TYPE(RVecRBinEntry, RBinSymbol);
@@ -357,7 +390,11 @@ typedef struct r_bin_object_t {
 	RList/*<??>*/ *libs;
 	RRBTree/*<RBinReloc>*/ *relocs;
 	RList/*<??>*/ *strings;
+#if R2_USE_NEW_ABI
+	RVecRBinClass classes;
+#else
 	RList/*<RBinClass>*/ *classes;
+#endif
 	HtPP *classes_ht;
 	HtPP *methods_ht;
 	RList/*<RBinDwarfRow>*/ *lines;
@@ -589,25 +626,6 @@ typedef struct r_bin_plugin_t {
 
 typedef void (*RBinSymbollCallback)(RBinObject *obj, void *symbol);
 
-typedef struct r_bin_class_t {
-	RBinName *name;
-	RList *super; // list of RBinName
-	char *visibility_str; // XXX R2_590 - only used by dex+java should be ut32 or bitfield.. should be usable for swift too
-	int index; // should be unsigned?
-	ut64 addr;
-	char *ns; // namespace // maybe RBinName?
-#if R2_USE_NEW_ABI
-	// Use RVec here
-	RList *methods; // <RBinSymbol>
-	RList *fields; // <RBinField>
-#else
-	RList *methods; // <RBinSymbol>
-	RList *fields; // <RBinField>
-#endif
-	// RList *interfaces; // <char *>
-	RBinAttribute attr;
-	ut64 lang;
-} RBinClass;
 
 #define RBinSectionName r_offsetof(RBinSection, name)
 #define RBinSectionOffset r_offsetof(RBinSection, offset)
@@ -683,7 +701,7 @@ typedef struct r_bin_mem_t {
 	ut64 addr;
 	int size;
 	int perms;
-	RList *mirrors;		//for mirror access; stuff here should only create new maps not new fds
+	RList *mirrors;	//for mirror access; stuff here should only create new maps not new fds
 } RBinMem;
 
 typedef struct r_bin_map_t {
@@ -699,9 +717,9 @@ typedef struct r_bin_dbginfo_t {
 } RBinDbgInfo;
 
 typedef struct r_bin_write_t {
-	ut64 (*scn_resize)(RBinFile *bf, const char *name, ut64 size);
+	ut64 (*scn_resize)(RBinFile *bf, const char *name, ut64 size); // R2_600 return bool instead
 	bool (*scn_perms)(RBinFile *bf, const char *name, int perms);
-	int (*rpath_del)(RBinFile *bf);
+	int (*rpath_del)(RBinFile *bf); // R2_600 return bool instead
 	bool (*entry)(RBinFile *bf, ut64 addr);
 	bool (*addlib)(RBinFile *bf, const char *lib);
 } RBinWrite;
@@ -742,6 +760,8 @@ typedef void (*RBinSymbolCallback)(RBinObject *obj, RBinSymbol *symbol);
 // options functions
 R_API void r_bin_file_options_init(RBinFileOptions *opt, int fd, ut64 baseaddr, ut64 loadaddr, int rawstr);
 R_API void r_bin_arch_options_init(RBinArchOptions *opt, const char *arch, int bits);
+// uhm should be tied used because we dont want bincur to change because of open
+R_API RBinFile *r_bin_file_open(RBin *bin, const char *file, RBinFileOptions *opt);
 // R_API void r_bin_create_options_init(RBinCreateOptions *opt, const char *arch, int bits);
 
 // open/close/reload functions
@@ -751,11 +771,6 @@ R_API bool r_bin_open(RBin *bin, const char *file, RBinFileOptions *opt);
 R_API bool r_bin_open_io(RBin *bin, RBinFileOptions *opt);
 R_API bool r_bin_open_buf(RBin *bin, RBuffer *buf, RBinFileOptions *opt);
 R_API bool r_bin_reload(RBin *bin, ut32 bf_id, ut64 baseaddr);
-
-R_API RBinClass *r_bin_class_new(const char *name, const char *super, ut64 attr);
-R_API void r_bin_class_free(RBinClass *);
-// uhm should be tied used because we dont want bincur to change because of open
-R_API RBinFile *r_bin_file_open(RBin *bin, const char *file, RBinFileOptions *opt);
 
 // plugins/bind functions
 R_API void r_bin_bind(RBin *b, RBinBind *bnd);
